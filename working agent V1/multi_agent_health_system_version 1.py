@@ -29,30 +29,16 @@ class MultiAgentHealthSystem:
         builder.add_node("treatment_agent", self._treatment_agent)
         builder.add_node("synthesis_agent", self._synthesis_agent)
         builder.add_node("hallucination_detector", self._hallucination_detector)
-        builder.add_node("followup_agent", self._followup_agent)
         
         builder.add_edge(START, "triage_agent")
-        builder.add_conditional_edges(
-            "triage_agent",
-            self._route_after_triage,
-            {
-                "followup": "followup_agent",
-                "standard": "diagnosis_agent"
-            }
-        )
+        builder.add_edge("triage_agent", "diagnosis_agent")
         builder.add_edge("diagnosis_agent", "diet_agent")
         builder.add_edge("diet_agent", "treatment_agent")
         builder.add_edge("treatment_agent", "synthesis_agent")
         builder.add_edge("synthesis_agent", "hallucination_detector")
         builder.add_edge("hallucination_detector", END)
-        builder.add_edge("followup_agent", END)
         
         return builder.compile(checkpointer=self.memory)
-    
-    def _route_after_triage(self, state: MultiAgentHealthState) -> str:
-        """Route based on triage result"""
-        triage_result = state["triage_result"]
-        return triage_result.routing_decision
     
     #=========================================================================
     # TRIAGE AGENT
@@ -60,28 +46,15 @@ class MultiAgentHealthSystem:
     
     def _triage_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
-        conversation_history = state.get("conversation_history", [])
         
-        # Check for follow-up questions
-        is_followup = self._detect_followup(user_input.symptoms, conversation_history)
+        prompt = f"""Classify this input:
+        Symptoms: {user_input.symptoms}
+        Age: {user_input.age or 'Unknown'}
         
-        if is_followup:
-            prompt = f"""This is a follow-up question: {user_input.symptoms}
-            
-            Classify as:
-            Intent: followup
-            Urgency: LOW
-            Question Type: [specific_info/clarification/details]
-            """
-        else:
-            prompt = f"""Classify this input:
-            Symptoms: {user_input.symptoms}
-            Age: {user_input.age or 'Unknown'}
-            
-            Provide:
-            Intent: [health/non-health]
-            Urgency: [LOW/MEDIUM/HIGH]
-            """
+        Provide:
+        Intent: [health/non-health]
+        Urgency: [LOW/MEDIUM/HIGH]
+        """
         
         messages = [
             SystemMessage(content="You are a medical triage classifier."),
@@ -90,40 +63,23 @@ class MultiAgentHealthSystem:
         
         response = self.llm.invoke(messages)
         
-        # Parse response
-        intent = "followup" if is_followup else ("health" if "health" in response.content.lower() else "non-health")
-        urgency = "LOW" if is_followup else self._extract_urgency(response.content)
+        # Simple parsing
+        intent = "health" if "health" in response.content.lower() else "non-health"
+        urgency = "MEDIUM"
+        if "HIGH" in response.content.upper():
+            urgency = "HIGH"
+        elif "LOW" in response.content.upper():
+            urgency = "LOW"
         
         triage_result = TriageResult(
             intent_classification=intent,
             urgency_level=urgency,
             emergency_flags=[],
-            routing_decision="followup" if is_followup else "standard",
+            routing_decision="standard",
             confidence_score=0.8
         )
         
         return {"triage_result": triage_result}
-    
-    def _detect_followup(self, current_input: str, history: list) -> bool:
-        """Detect if current input is a follow-up question"""
-        if not history:
-            return False
-            
-        followup_indicators = [
-            "what type of", "which test", "what blood", "how often", 
-            "when should", "what specific", "which one", "more details",
-            "can you explain", "tell me about"
-        ]
-        
-        return any(indicator in current_input.lower() for indicator in followup_indicators)
-    
-    def _extract_urgency(self, response: str) -> str:
-        """Extract urgency from response"""
-        if "HIGH" in response.upper():
-            return "HIGH"
-        elif "LOW" in response.upper():
-            return "LOW"
-        return "MEDIUM"
     
     #=========================================================================
     # DIAGNOSIS AGENT
@@ -350,38 +306,8 @@ class MultiAgentHealthSystem:
         return {"hallucination_check": hallucination_check}
     
     #=========================================================================
-    # FOLLOWUP AGENT
+    # MAIN PROCESSING
     #=========================================================================
-    
-    def _followup_agent(self, state: MultiAgentHealthState):
-        user_input = state["user_input"]
-        conversation_history = state.get("conversation_history", [])
-        
-        prompt = f"""Answer this follow-up question directly and concisely:
-        
-        Question: {user_input.symptoms}
-        Previous conversation context: {conversation_history[-2:] if conversation_history else "None"}
-        
-        Provide a direct, specific answer without full health plan.
-        Focus only on what was asked.
-        """
-        
-        messages = [
-            SystemMessage(content="You are a health information specialist providing specific answers to follow-up questions."),
-            HumanMessage(content=prompt)
-        ]
-        
-        response = self.llm.invoke(messages)
-        
-        return {
-            "response": response.content + "\n\n" + MEDICAL_DISCLAIMER,
-            "triage_result": state["triage_result"],
-            "diagnosis_result": None,
-            "diet_result": None,
-            "treatment_result": None,
-            "synthesis_result": None,
-            "validation_status": "APPROVED"
-        }
     
     def process_health_query(self, user_input: UserInput, personality: str = "friendly", thread_id: str = "default"):
         thread = {"configurable": {"thread_id": thread_id}}

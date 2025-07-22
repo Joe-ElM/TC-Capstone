@@ -85,7 +85,7 @@ def search_tavily(query: str, max_results: int = 3) -> str:
 #=============================================================================
 
 @tool
-def calculate_bmi(height_cm: float, weight_kg: float) -> Dict[str, Any]:
+def calculate_bmi(height_cm: float, weight_kg: float) -> Dict[str, any]:
     """Calculate BMI and provide health category"""
     try:
         if height_cm <= 0 or weight_kg <= 0:
@@ -118,7 +118,7 @@ def calculate_bmi(height_cm: float, weight_kg: float) -> Dict[str, Any]:
         return {"error": f"BMI calculation error: {str(e)}"}
 
 @tool
-def calculate_nutrition_needs(condition: str, age: int, gender: str, activity_level: str) -> Dict[str, Any]:
+def calculate_nutrition_needs(condition: str, age: int, gender: str, activity_level: str) -> Dict[str, any]:
     """Calculate basic nutritional needs based on condition and demographics"""
     try:
         # Base caloric needs (simplified calculation)
@@ -166,7 +166,7 @@ def calculate_nutrition_needs(condition: str, age: int, gender: str, activity_le
 #=============================================================================
 
 @tool
-def score_symptom_severity(symptoms: List[str], age: int = None) -> Dict[str, Any]:
+def score_symptom_severity(symptoms: List[str], age: int = None) -> Dict[str, any]:
     """Score symptom severity based on common medical criteria"""
     try:
         emergency_keywords = [
@@ -240,7 +240,7 @@ def score_symptom_severity(symptoms: List[str], age: int = None) -> Dict[str, An
 #=============================================================================
 
 @tool
-def schedule_appointment(urgency: str, condition: str, preferred_timeframe: str) -> Dict[str, Any]:
+def schedule_appointment(urgency: str, condition: str, preferred_timeframe: str) -> Dict[str, any]:
     """Generate appointment scheduling recommendation"""
     try:
         urgency_mapping = {
@@ -289,7 +289,7 @@ def schedule_appointment(urgency: str, condition: str, preferred_timeframe: str)
 #=============================================================================
 
 @tool
-def validate_medical_safety(recommendations: Dict[str, Any], user_profile: Dict[str, Any] = None) -> Dict[str, Any]:
+def validate_medical_safety(recommendations: Dict[str, any], user_profile: Dict[str, any] = None) -> Dict[str, any]:
     """Validate medical recommendations for safety concerns"""
     try:
         safety_flags = []
