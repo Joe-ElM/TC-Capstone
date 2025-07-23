@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import json
+import time
 from datetime import datetime
 from multi_agent_health_system import MultiAgentHealthSystem
 from extended_schemas import UserInput
@@ -61,6 +62,9 @@ def load_conversation():
                 settings = conversation_data["settings"]
                 st.session_state.personality = settings.get("personality", "friendly")
                 st.session_state.openai_settings = settings.get("openai_settings", {})
+            
+            # Reset the agent to clear its conversation history
+            st.session_state.agent = None
             st.success("Conversation loaded successfully!")
             st.rerun()
         except Exception as e:
@@ -75,6 +79,9 @@ def main():
         st.session_state.messages = []
     if "agent" not in st.session_state:
         st.session_state.agent = None
+    if "agent_session_id" not in st.session_state:
+        # Create a unique session ID for this chat session
+        st.session_state.agent_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Sidebar settings
     with st.sidebar:
@@ -107,6 +114,7 @@ def main():
         st.subheader("🤖 Multi-Agent System")
         st.info("""
         **Active Agents:**
+        - 🔄 Context Resolver
         - 🚨 Triage Agent
         - 🔍 Diagnosis Agent  
         - 🥗 Diet Agent
@@ -127,13 +135,19 @@ def main():
         
         if st.button("🗑️ Clear Chat"):
             st.session_state.messages = []
+            st.session_state.agent = None  # Reset agent to clear conversation history
+            st.session_state.agent_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
             st.rerun()
     
-    # Initialize multi-agent system
+    # Initialize multi-agent system - maintain same instance for conversation continuity
     if st.session_state.agent is None:
         st.session_state.agent = MultiAgentHealthSystem(openai_settings)
     else:
+        # Update settings without resetting the agent
         st.session_state.agent.openai_settings = openai_settings
+        st.session_state.agent.llm.temperature = openai_settings["temperature"]
+        st.session_state.agent.llm.top_p = openai_settings["top_p"]
+        st.session_state.agent.llm.max_tokens = openai_settings["max_tokens"]
     
     # Medical disclaimer
     with st.expander("⚠️ Important Medical Disclaimer", expanded=False):
@@ -180,63 +194,94 @@ def main():
         
         # Process with multi-agent system
         with st.chat_message("assistant"):
-            with st.spinner("Processing through multi-agent system..."):
-                try:
-                    # Create user input
-                    user_input = UserInput(
-                        symptoms=prompt,
-                        age=None,
-                        gender=None
-                    )
+            try:
+                # Create user input
+                user_input = UserInput(
+                    symptoms=prompt,
+                    age=None,
+                    gender=None
+                )
+                
+                # Check if this is likely a follow-up question (short and contains pronouns)
+                is_followup = len(prompt.split()) < 10 and any(word in prompt.lower() for word in ["it", "this", "that", "these", "those", "them"])
+                
+                if is_followup:
+                    # Process follow-ups without progress bar
+                    with st.spinner("Processing..."):
+                        result = st.session_state.agent.process_health_query(
+                            user_input, 
+                            personality,
+                            thread_id=st.session_state.agent_session_id
+                        )
+                else:
+                    # Use progress bar only for initial complex queries
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    # Process with multi-agent system
+                    def update_progress(status, progress):
+                        status_text.text(status)
+                        progress_bar.progress(progress)
+                    
                     result = st.session_state.agent.process_health_query(
                         user_input, 
                         personality,
-                        thread_id="chat_session"
+                        thread_id=st.session_state.agent_session_id,
+                        progress_callback=update_progress
                     )
                     
-                    response = result["response"]
-                    
-                    # Display response
-                    st.write(response)
-                    
-                    # Add assistant message with agent details
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": response,
-                        "agent_details": {
-                            "triage_result": result["triage_result"].dict(),
-                            "diagnosis_result": result["diagnosis_result"].dict(),
-                            "diet_result": result["diet_result"].dict(),
-                            "treatment_result": result["treatment_result"].dict(),
-                            "validation_status": result["validation_status"]
-                        }
-                    })
-                    
-                    # Show processing pipeline
-                    with st.expander("🔄 Agent Processing Pipeline"):
-                        st.write("✅ Triage Agent - Classification complete")
-                        st.write("✅ Diagnosis Agent - Research and analysis complete")
-                        st.write("✅ Diet Agent - Nutritional recommendations complete")
-                        st.write("✅ Treatment Agent - Care guidance complete")
-                        st.write("✅ Synthesis Agent - Plan integration complete")
-                        st.write(f"✅ Validation Agent - Status: {result['validation_status']}")
-                    
-                except Exception as e:
-                    error_msg = f"Sorry, I encountered an error: {str(e)}"
-                    st.error(error_msg)
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": error_msg
-                    })
+                    progress_bar.empty()
+                    status_text.empty()
+                
+                response = result["response"]
+                
+                # Stream the response character by character
+                response_placeholder = st.empty()
+                displayed_text = ""
+                
+                # Display response with streaming effect
+                for char in response:
+                    displayed_text += char
+                    response_placeholder.markdown(displayed_text)
+                    time.sleep(0.005)  # Adjust speed as needed
+                
+                # Add assistant message with agent details
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": response,
+                    "agent_details": {
+                        "triage_result": result["triage_result"].dict(),
+                        "diagnosis_result": result["diagnosis_result"].dict(),
+                        "diet_result": result["diet_result"].dict(),
+                        "treatment_result": result["treatment_result"].dict(),
+                        "validation_status": result["validation_status"]
+                    }
+                })
+                
+                # Show processing pipeline
+                with st.expander("🔄 Agent Processing Pipeline"):
+                    st.write("✅ Context Resolver - References resolved")
+                    st.write("✅ Triage Agent - Classification complete")
+                    st.write("✅ Diagnosis Agent - Research and analysis complete")
+                    st.write("✅ Diet Agent - Nutritional recommendations complete")
+                    st.write("✅ Treatment Agent - Care guidance complete")
+                    st.write("✅ Synthesis Agent - Plan integration complete")
+                    st.write(f"✅ Validation Agent - Status: {result['validation_status']}")
+                
+            except Exception as e:
+                error_msg = f"Sorry, I encountered an error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": error_msg
+                })
     
     # Usage instructions
     if not st.session_state.messages:
         st.info("""
         👋 **Welcome to the Multi-Agent HealthBot!** 
         
-        This advanced system uses 6 specialized AI agents:
+        This advanced system uses 7 specialized AI agents:
+        - **Context Resolver**: Understands references like "it" from previous messages
         - **Triage Agent**: Classifies and prioritizes your health concerns
         - **Diagnosis Agent**: Researches symptoms and provides educational insights
         - **Diet Agent**: Offers nutritional recommendations

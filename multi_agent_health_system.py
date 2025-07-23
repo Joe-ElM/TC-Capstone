@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from extended_schemas import MultiAgentHealthState, UserInput, TriageResult, DiagnosisResult, DietResult, TreatmentResult, SynthesisResult, HallucinationCheck
 from extended_tools import search_wikipedia, search_tavily, calculate_bmi, calculate_nutrition_needs, score_symptom_severity, schedule_appointment, validate_medical_safety, combine_search_results
 from config import PERSONALITIES, MEDICAL_DISCLAIMER
+import re
 
 class MultiAgentHealthSystem:
     def __init__(self, openai_settings=None):
@@ -19,118 +20,198 @@ class MultiAgentHealthSystem:
         
         self.memory = MemorySaver()
         self.graph = self._build_graph()
+        # Store conversation history at instance level
+        self.conversation_history = []
     
     def _build_graph(self):
         builder = StateGraph(MultiAgentHealthState)
         
+        # Add all nodes
+        builder.add_node("context_resolver", self._context_resolver)
         builder.add_node("triage_agent", self._triage_agent)
         builder.add_node("diagnosis_agent", self._diagnosis_agent)
         builder.add_node("diet_agent", self._diet_agent)
         builder.add_node("treatment_agent", self._treatment_agent)
         builder.add_node("synthesis_agent", self._synthesis_agent)
         builder.add_node("hallucination_detector", self._hallucination_detector)
-        builder.add_node("followup_agent", self._followup_agent)
         
-        builder.add_edge(START, "triage_agent")
+        # Start with context resolver
+        builder.add_edge(START, "context_resolver")
+        builder.add_edge("context_resolver", "triage_agent")
+        
+        # Add conditional routing from triage
         builder.add_conditional_edges(
             "triage_agent",
-            self._route_after_triage,
+            self._route_decision,
             {
-                "followup": "followup_agent",
-                "standard": "diagnosis_agent"
+                "diagnosis_only": "diagnosis_agent",
+                "diet_only": "diet_agent",
+                "treatment_only": "treatment_agent",
+                "full_pipeline": "diagnosis_agent",
+                "clarification": "synthesis_agent"
             }
         )
-        builder.add_edge("diagnosis_agent", "diet_agent")
-        builder.add_edge("diet_agent", "treatment_agent")
-        builder.add_edge("treatment_agent", "synthesis_agent")
+        
+        # Conditional edges for partial routes
+        builder.add_conditional_edges(
+            "diagnosis_agent",
+            lambda x: "synthesis_agent" if x.get("triage_result", {}).routing_decision == "diagnosis_only" else "diet_agent"
+        )
+        
+        builder.add_conditional_edges(
+            "diet_agent",
+            lambda x: "synthesis_agent" if x.get("triage_result", {}).routing_decision in ["diet_only", "diagnosis_only"] else "treatment_agent"
+        )
+        
+        builder.add_conditional_edges(
+            "treatment_agent",
+            lambda x: "synthesis_agent"
+        )
+        
+        # Always validate after synthesis
         builder.add_edge("synthesis_agent", "hallucination_detector")
         builder.add_edge("hallucination_detector", END)
-        builder.add_edge("followup_agent", END)
         
         return builder.compile(checkpointer=self.memory)
     
-    def _route_after_triage(self, state: MultiAgentHealthState) -> str:
-        """Route based on triage result"""
-        triage_result = state["triage_result"]
+    def _route_decision(self, state: MultiAgentHealthState):
+        """Determine which route to take based on triage results"""
+        triage_result = state.get("triage_result", {})
         return triage_result.routing_decision
     
     #=========================================================================
-    # TRIAGE AGENT
+    # CONTEXT RESOLVER - NEW
+    #=========================================================================
+    
+    def _context_resolver(self, state: MultiAgentHealthState):
+        """Resolve pronouns and ambiguous references using conversation history"""
+        user_input = state["user_input"]
+        conversation_history = state.get("conversation_history", [])
+        
+        # Check if input contains pronouns or references
+        pronouns = ["it", "this", "that", "them", "these", "those"]
+        input_lower = user_input.symptoms.lower()
+        
+        needs_context = any(pronoun in input_lower.split() for pronoun in pronouns)
+        
+        if needs_context and conversation_history:
+            # Get the last few exchanges for context
+            recent_context = "\n".join(conversation_history[-4:]) if len(conversation_history) > 4 else "\n".join(conversation_history)
+            
+            prompt = f"""Given this conversation context:
+{recent_context}
+
+The user now asks: "{user_input.symptoms}"
+
+Rewrite the user's question by replacing pronouns (it, this, that, etc.) with what they're referring to from the context.
+If the question is already clear, return it unchanged.
+
+Rewritten question:"""
+            
+            messages = [
+                SystemMessage(content="You are a context resolver that clarifies ambiguous references."),
+                HumanMessage(content=prompt)
+            ]
+            
+            response = self.llm.invoke(messages)
+            resolved_input = response.content.strip()
+            
+            # Update the user input with resolved context
+            user_input.symptoms = resolved_input
+            
+            return {"user_input": user_input, "context_resolved": True}
+        
+        return {"context_resolved": False}
+    
+    #=========================================================================
+    # TRIAGE AGENT - UPDATED
     #=========================================================================
     
     def _triage_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
         conversation_history = state.get("conversation_history", [])
         
-        # Check for follow-up questions
-        is_followup = self._detect_followup(user_input.symptoms, conversation_history)
+        # Include conversation context in triage
+        context_str = ""
+        if conversation_history:
+            context_str = f"\nConversation context:\n" + "\n".join(conversation_history[-2:])
         
-        if is_followup:
-            prompt = f"""This is a follow-up question: {user_input.symptoms}
-            
-            Classify as:
-            Intent: followup
-            Urgency: LOW
-            Question Type: [specific_info/clarification/details]
-            """
-        else:
-            prompt = f"""Classify this input:
-            Symptoms: {user_input.symptoms}
-            Age: {user_input.age or 'Unknown'}
-            
-            Provide:
-            Intent: [health/non-health]
-            Urgency: [LOW/MEDIUM/HIGH]
-            """
+        prompt = f"""Classify this input and determine routing:
+        Current question: {user_input.symptoms}
+        Age: {user_input.age or 'Unknown'}
+        {context_str}
+        
+        Determine:
+        1. Intent: [health/non-health]
+        2. Urgency: [LOW/MEDIUM/HIGH/EMERGENCY]
+        3. Query type:
+           - "diet_only": Questions about food, nutrition, supplements, diet
+           - "treatment_only": Questions about tests, appointments, when to see doctor
+           - "diagnosis_only": Questions about what condition they might have
+           - "clarification": Simple follow-ups asking for clarification/details
+           - "full_pipeline": New symptoms or complex multi-system issues
+        
+        Provide your analysis.
+        """
         
         messages = [
-            SystemMessage(content="You are a medical triage classifier."),
+            SystemMessage(content="You are a medical triage classifier that routes queries efficiently."),
             HumanMessage(content=prompt)
         ]
         
         response = self.llm.invoke(messages)
+        content = response.content.lower()
         
         # Parse response
-        intent = "followup" if is_followup else ("health" if "health" in response.content.lower() else "non-health")
-        urgency = "LOW" if is_followup else self._extract_urgency(response.content)
+        intent = "health" if "health" in content else "non-health"
+        
+        # Determine urgency
+        urgency = "MEDIUM"
+        if "emergency" in content:
+            urgency = "EMERGENCY"
+        elif "high" in content:
+            urgency = "HIGH"
+        elif "low" in content:
+            urgency = "LOW"
+        
+        # Determine routing - always use full pipeline for new/complex cases
+        routing = "full_pipeline"
+        if "diet_only" in content or any(word in user_input.symptoms.lower() for word in ["diet", "food", "nutrition", "supplement", "vitamin", "eat"]):
+            routing = "diet_only"
+        elif "treatment_only" in content or any(word in user_input.symptoms.lower() for word in ["test", "appointment", "when should", "blood work", "see doctor"]):
+            routing = "treatment_only"
+        elif "diagnosis_only" in content or "what is this" in user_input.symptoms.lower():
+            routing = "diagnosis_only"
+        elif "clarification" in content or (len(user_input.symptoms.split()) < 15 and conversation_history):
+            routing = "clarification"
+        
+        # Override to full pipeline for high urgency
+        if urgency in ["HIGH", "EMERGENCY"]:
+            routing = "full_pipeline"
         
         triage_result = TriageResult(
             intent_classification=intent,
             urgency_level=urgency,
             emergency_flags=[],
-            routing_decision="followup" if is_followup else "standard",
+            routing_decision=routing,
             confidence_score=0.8
         )
         
         return {"triage_result": triage_result}
     
-    def _detect_followup(self, current_input: str, history: list) -> bool:
-        """Detect if current input is a follow-up question"""
-        if not history:
-            return False
-            
-        followup_indicators = [
-            "what type of", "which test", "what blood", "how often", 
-            "when should", "what specific", "which one", "more details",
-            "can you explain", "tell me about"
-        ]
-        
-        return any(indicator in current_input.lower() for indicator in followup_indicators)
-    
-    def _extract_urgency(self, response: str) -> str:
-        """Extract urgency from response"""
-        if "HIGH" in response.upper():
-            return "HIGH"
-        elif "LOW" in response.upper():
-            return "LOW"
-        return "MEDIUM"
-    
     #=========================================================================
-    # DIAGNOSIS AGENT
+    # DIAGNOSIS AGENT - UPDATED
     #=========================================================================
     
     def _diagnosis_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
+        conversation_history = state.get("conversation_history", [])
+        triage_result = state["triage_result"]
+        
+        # Include context for follow-up questions
+        context_str = ""
+        if triage_result.routing_decision == "followup" and conversation_history:
+            context_str = f"\nThis is a follow-up question. Previous context:\n" + "\n".join(conversation_history[-4:])
         
         # Research symptoms
         wikipedia_results = search_wikipedia.invoke({"query": user_input.symptoms})
@@ -144,7 +225,8 @@ class MultiAgentHealthSystem:
         })
         
         prompt = f"""Analyze symptoms:
-        Symptoms: {user_input.symptoms}
+        Current question: {user_input.symptoms}
+        {context_str}
         Research: {research_content[:1000]}
         Severity: {severity_score}
         
@@ -152,6 +234,7 @@ class MultiAgentHealthSystem:
         1. Possible conditions (2-3)
         2. Severity level
         3. Red flags
+        4. If this is about blood tests, specify which tests are relevant
         """
         
         messages = [
@@ -174,12 +257,21 @@ class MultiAgentHealthSystem:
         return {"diagnosis_result": diagnosis_result, "research_content": research_content}
     
     #=========================================================================
-    # DIET AGENT
+    # DIET AGENT - UPDATED
     #=========================================================================
     
     def _diet_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
         diagnosis_result = state["diagnosis_result"]
+        conversation_history = state.get("conversation_history", [])
+        
+        # Check if this is a diet-related question
+        is_diet_related = any(word in user_input.symptoms.lower() for word in ["diet", "food", "eat", "nutrition", "weight"])
+        
+        if not is_diet_related and conversation_history:
+            # Check if previous context was diet-related
+            recent_history = " ".join(conversation_history[-2:])
+            is_diet_related = any(word in recent_history.lower() for word in ["cholesterol", "weight", "diet", "food"])
         
         # Calculate nutrition needs
         nutrition_calc = calculate_nutrition_needs.invoke({
@@ -189,12 +281,18 @@ class MultiAgentHealthSystem:
             "activity_level": "moderate"
         })
         
+        context_str = ""
+        if conversation_history:
+            context_str = f"\nConversation context:\n" + "\n".join(conversation_history[-2:])
+        
         prompt = f"""Provide dietary recommendations:
-        Symptoms: {user_input.symptoms}
+        Current question: {user_input.symptoms}
+        {context_str}
         Age: {user_input.age or 'Adult'}
         Nutrition needs: {nutrition_calc}
         
-        Recommend:
+        If this is NOT a diet-related question, provide minimal dietary guidance.
+        If it IS diet-related, recommend:
         1. Foods to include
         2. Foods to avoid
         3. Supplements if needed
@@ -220,12 +318,13 @@ class MultiAgentHealthSystem:
         return {"diet_result": diet_result}
     
     #=========================================================================
-    # TREATMENT AGENT
+    # TREATMENT AGENT - UPDATED
     #=========================================================================
     
     def _treatment_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
         diagnosis_result = state["diagnosis_result"]
+        conversation_history = state.get("conversation_history", [])
         
         # Schedule appointment if needed
         appointment = schedule_appointment.invoke({
@@ -234,15 +333,23 @@ class MultiAgentHealthSystem:
             "preferred_timeframe": "soon"
         })
         
+        context_str = ""
+        if conversation_history:
+            context_str = f"\nConversation context:\n" + "\n".join(conversation_history[-2:])
+        
         prompt = f"""Provide treatment guidance:
-        Symptoms: {user_input.symptoms}
+        Current question: {user_input.symptoms}
+        {context_str}
         Severity: {diagnosis_result.severity_level}
         Appointment info: {appointment}
+        
+        If asking about blood tests specifically, detail which tests and why.
         
         Provide:
         1. Self-care measures
         2. When to see doctor
         3. Lifestyle changes
+        4. Specific tests if relevant
         """
         
         messages = [
@@ -265,42 +372,83 @@ class MultiAgentHealthSystem:
         return {"treatment_result": treatment_result}
     
     #=========================================================================
-    # SYNTHESIS AGENT
+    # SYNTHESIS AGENT - UPDATED
     #=========================================================================
     
     def _synthesis_agent(self, state: MultiAgentHealthState):
-        diagnosis_result = state["diagnosis_result"]
-        diet_result = state["diet_result"]
-        treatment_result = state["treatment_result"]
         user_input = state["user_input"]
+        conversation_history = state.get("conversation_history", [])
+        triage_result = state["triage_result"]
+        routing = triage_result.routing_decision
         
-        all_outputs = {
-            "diagnosis": diagnosis_result.dict(),
-            "diet": diet_result.dict(),
-            "treatment": treatment_result.dict()
-        }
+        # Build context based on which agents were run
+        context_parts = []
         
-        # Safety validation
-        safety_check = validate_medical_safety.invoke({
-            "recommendations": all_outputs,
-            "user_profile": {"age": user_input.age}
-        })
+        if state.get("diagnosis_result"):
+            context_parts.append(f"Diagnosis: {state['diagnosis_result'].symptom_analysis}")
         
-        prompt = f"""Synthesize comprehensive health plan:
+        if state.get("diet_result"):
+            context_parts.append("Diet: Nutritional recommendations provided")
         
-        Diagnosis: {diagnosis_result.symptom_analysis}
-        Diet: Nutritional recommendations provided
-        Treatment: Care guidance provided
-        Safety: {safety_check}
+        if state.get("treatment_result"):
+            context_parts.append("Treatment: Care guidance provided")
         
-        Create unified plan with:
-        1. Priority actions
-        2. Integrated recommendations
-        3. Next steps
-        """
+        all_outputs = {}
+        if state.get("diagnosis_result"):
+            all_outputs["diagnosis"] = state["diagnosis_result"].dict()
+        if state.get("diet_result"):
+            all_outputs["diet"] = state["diet_result"].dict()
+        if state.get("treatment_result"):
+            all_outputs["treatment"] = state["treatment_result"].dict()
+        
+        # Safety validation only if we have recommendations
+        safety_check = {"safety_flags": [], "warnings": []}
+        if all_outputs:
+            safety_check = validate_medical_safety.invoke({
+                "recommendations": all_outputs,
+                "user_profile": {"age": user_input.age}
+            })
+        
+        context_str = ""
+        if conversation_history:
+            context_str = f"\nConversation context:\n" + "\n".join(conversation_history[-4:])
+        
+        # Adjust prompt based on routing
+        if routing == "clarification":
+            prompt = f"""Provide a direct answer to this clarification:
+            Question: {user_input.symptoms}
+            {context_str}
+            
+            Give a concise, direct response.
+            """
+        elif routing == "diet_only":
+            prompt = f"""Create dietary/nutrition response:
+            Question: {user_input.symptoms}
+            {context_str}
+            {' '.join(context_parts)}
+            
+            Focus only on dietary and nutritional aspects.
+            """
+        elif routing == "treatment_only":
+            prompt = f"""Create treatment/testing response:
+            Question: {user_input.symptoms}
+            {context_str}
+            {' '.join(context_parts)}
+            
+            Focus only on tests, appointments, and when to see healthcare providers.
+            """
+        else:
+            prompt = f"""Synthesize comprehensive health plan:
+            Current question: {user_input.symptoms}
+            {context_str}
+            {' '.join(context_parts)}
+            Safety: {safety_check}
+            
+            Create unified response that directly answers the user's question.
+            """
         
         messages = [
-            SystemMessage(content="You are a healthcare coordinator creating comprehensive plans."),
+            SystemMessage(content="You are a healthcare coordinator creating focused responses."),
             HumanMessage(content=prompt)
         ]
         
@@ -311,14 +459,14 @@ class MultiAgentHealthSystem:
             safety_validations=safety_check.get("safety_flags", []),
             cross_checks={"validated": True},
             final_recommendations={"plan": response.content},
-            appointment_needed=treatment_result.appointment_needed,
-            priority_level=diagnosis_result.severity_level
+            appointment_needed=state.get("treatment_result", {}).appointment_needed if state.get("treatment_result") else False,
+            priority_level=state.get("diagnosis_result", {}).severity_level if state.get("diagnosis_result") else "MEDIUM"
         )
         
         return {"synthesis_result": synthesis_result}
     
     #=========================================================================
-    # HALLUCINATION DETECTOR
+    # HALLUCINATION DETECTOR - UNCHANGED
     #=========================================================================
     
     def _hallucination_detector(self, state: MultiAgentHealthState):
@@ -350,48 +498,62 @@ class MultiAgentHealthSystem:
         return {"hallucination_check": hallucination_check}
     
     #=========================================================================
-    # FOLLOWUP AGENT
+    # MAIN PROCESSING - UPDATED
     #=========================================================================
     
-    def _followup_agent(self, state: MultiAgentHealthState):
-        user_input = state["user_input"]
-        conversation_history = state.get("conversation_history", [])
-        
-        prompt = f"""Answer this follow-up question directly and concisely:
-        
-        Question: {user_input.symptoms}
-        Previous conversation context: {conversation_history[-2:] if conversation_history else "None"}
-        
-        Provide a direct, specific answer without full health plan.
-        Focus only on what was asked.
-        """
-        
-        messages = [
-            SystemMessage(content="You are a health information specialist providing specific answers to follow-up questions."),
-            HumanMessage(content=prompt)
-        ]
-        
-        response = self.llm.invoke(messages)
-        
-        return {
-            "response": response.content + "\n\n" + MEDICAL_DISCLAIMER,
-            "triage_result": state["triage_result"],
-            "diagnosis_result": None,
-            "diet_result": None,
-            "treatment_result": None,
-            "synthesis_result": None,
-            "validation_status": "APPROVED"
-        }
-    
-    def process_health_query(self, user_input: UserInput, personality: str = "friendly", thread_id: str = "default"):
+    def process_health_query(self, user_input: UserInput, personality: str = "friendly", thread_id: str = "default", progress_callback=None):
         thread = {"configurable": {"thread_id": thread_id}}
         
-        result = self.graph.invoke({
-            "user_input": user_input,
-            "personality": personality,
-            "conversation_history": [],
-            "openai_settings": self.openai_settings
-        }, thread)
+        # Add current user input to conversation history
+        self.conversation_history.append(f"User: {user_input.symptoms}")
+        
+        # Create a custom graph with progress tracking
+        if progress_callback:
+            # Process step by step with progress updates
+            state = {
+                "user_input": user_input,
+                "personality": personality,
+                "conversation_history": self.conversation_history.copy(),
+                "openai_settings": self.openai_settings
+            }
+            
+            # Context Resolver
+            progress_callback("🔄 Resolving context...", 0.1)
+            state.update(self._context_resolver(state))
+            
+            # Triage
+            progress_callback("🚨 Triaging symptoms...", 0.2)
+            state.update(self._triage_agent(state))
+            
+            # Diagnosis
+            progress_callback("🔍 Analyzing symptoms...", 0.3)
+            state.update(self._diagnosis_agent(state))
+            
+            # Diet
+            progress_callback("🥗 Generating dietary recommendations...", 0.5)
+            state.update(self._diet_agent(state))
+            
+            # Treatment
+            progress_callback("💊 Creating treatment plan...", 0.7)
+            state.update(self._treatment_agent(state))
+            
+            # Synthesis
+            progress_callback("🧠 Synthesizing comprehensive plan...", 0.85)
+            state.update(self._synthesis_agent(state))
+            
+            # Validation
+            progress_callback("✅ Validating recommendations...", 0.95)
+            state.update(self._hallucination_detector(state))
+            
+            result = state
+        else:
+            # Normal processing without progress
+            result = self.graph.invoke({
+                "user_input": user_input,
+                "personality": personality,
+                "conversation_history": self.conversation_history.copy(),
+                "openai_settings": self.openai_settings
+            }, thread)
         
         # Generate final response
         synthesis_result = result["synthesis_result"]
@@ -399,12 +561,43 @@ class MultiAgentHealthSystem:
         
         response = f"{final_plan}\n\n{MEDICAL_DISCLAIMER}"
         
+        # Add assistant response to conversation history
+        self.conversation_history.append(f"Assistant: {final_plan}")
+        
+        # Keep conversation history manageable (last 10 exchanges)
+        if len(self.conversation_history) > 20:
+            self.conversation_history = self.conversation_history[-20:]
+        
         return {
             "response": response,
             "triage_result": result["triage_result"],
-            "diagnosis_result": result["diagnosis_result"],
-            "diet_result": result["diet_result"],
-            "treatment_result": result["treatment_result"],
+            "diagnosis_result": result.get("diagnosis_result", DiagnosisResult(
+                symptoms=[],
+                symptom_analysis={},
+                possible_conditions=[],
+                severity_level="MEDIUM",
+                recommended_tests=[],
+                red_flags=[],
+                research_sources=[]
+            )),
+            "diet_result": result.get("diet_result", DietResult(
+                diagnosed_condition="",
+                dietary_restrictions=[],
+                nutritional_needs={},
+                recommended_foods=[],
+                foods_to_avoid=[],
+                meal_suggestions=[],
+                supplements=[]
+            )),
+            "treatment_result": result.get("treatment_result", TreatmentResult(
+                diagnosis={},
+                treatment_options=[],
+                care_recommendations=[],
+                lifestyle_changes=[],
+                follow_up_schedule={},
+                when_to_see_doctor="",
+                appointment_needed=False
+            )),
             "synthesis_result": result["synthesis_result"],
             "validation_status": result["hallucination_check"].validation_status
         }
