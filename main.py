@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import json
 import time
 from datetime import datetime
 from multi_agent_health_system import MultiAgentHealthSystem
@@ -12,72 +11,6 @@ st.set_page_config(
     page_icon="🏥",
     layout="wide"
 )
-
-def save_conversation():
-    """Save conversation to JSON file"""
-    if st.session_state.messages:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"health_conversation_{timestamp}.json"
-        
-        # Include patient context in save
-        patient_context = None
-        if st.session_state.agent:
-            patient_context = st.session_state.agent.patient_context.dict()
-        
-        conversation_data = {
-            "timestamp": datetime.now().isoformat(),
-            "messages": st.session_state.messages,
-            "patient_context": patient_context,
-            "settings": {
-                "personality": st.session_state.get("personality", "friendly"),
-                "openai_settings": st.session_state.get("openai_settings", {})
-            }
-        }
-        
-        with open(filename, 'w') as f:
-            json.dump(conversation_data, f, indent=2)
-        
-        return filename
-    return None
-
-def summarize_conversation():
-    """Generate conversation summary"""
-    if not st.session_state.messages:
-        return "No conversation to summarize."
-    
-    user_messages = [msg["content"] for msg in st.session_state.messages if msg["role"] == "user"]
-    assistant_messages = [msg["content"] for msg in st.session_state.messages if msg["role"] == "assistant"]
-    
-    summary = f"""
-**Conversation Summary**
-- **Date**: {datetime.now().strftime("%Y-%m-%d %H:%M")}
-- **Topics Discussed**: {len(user_messages)} health questions
-- **Key Symptoms/Questions**: {'; '.join(user_messages[:3])}...
-- **Total Messages**: {len(st.session_state.messages)}
-"""
-    return summary
-
-def load_conversation():
-    """Load conversation from uploaded file"""
-    uploaded_file = st.file_uploader("Upload conversation file", type="json")
-    if uploaded_file:
-        try:
-            conversation_data = json.load(uploaded_file)
-            st.session_state.messages = conversation_data.get("messages", [])
-            if "settings" in conversation_data:
-                settings = conversation_data["settings"]
-                st.session_state.personality = settings.get("personality", "friendly")
-                st.session_state.openai_settings = settings.get("openai_settings", {})
-            
-            # Reset the agent and load patient context
-            st.session_state.agent = None
-            if "patient_context" in conversation_data and conversation_data["patient_context"]:
-                st.session_state.loaded_patient_context = conversation_data["patient_context"]
-            
-            st.success("Conversation loaded successfully!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error loading conversation: {str(e)}")
 
 def main():
     st.title("🏥 HealthBot - Multi-Agent AI Health System")
@@ -146,15 +79,8 @@ def main():
         else:
             st.info("📋 No profile yet")
         
-        # Conversation management
-        st.subheader("💾 Conversation")
-        
-        if st.button("💾 Save"):
-            filename = save_conversation()
-            if filename:
-                st.success(f"Saved: {filename}")
-            else:
-                st.warning("No conversation to save")
+        # Session management
+        st.subheader("💭 Session")
         
         if st.button("🗑️ Clear Chat"):
             st.session_state.messages = []
@@ -165,11 +91,6 @@ def main():
     # Initialize multi-agent system - maintain same instance for conversation continuity
     if st.session_state.agent is None:
         st.session_state.agent = MultiAgentHealthSystem(openai_settings)
-        # Load patient context if available
-        if hasattr(st.session_state, 'loaded_patient_context'):
-            loaded_ctx = st.session_state.loaded_patient_context
-            st.session_state.agent.patient_context = PatientContext(**loaded_ctx)
-            del st.session_state.loaded_patient_context
     else:
         # Update settings without resetting the agent
         st.session_state.agent.openai_settings = openai_settings
@@ -318,11 +239,11 @@ def main():
         - **Coherence Checker**: Ensures continuity and avoids repetition
         - **Validation Agent**: Ensures accuracy and safety
         
-        **New Features:**
+        **Key Features:**
         - 🧠 Remembers your conditions, lab values, and what's helped
         - 🚀 Smart routing for 60% faster responses on follow-ups
         - 📊 Tracks your progress over time
-        - 💾 Complete conversation and health profile saving
+        - ✅ Multiple safety validation layers
         
         Start by describing your symptoms or health questions!
         """)

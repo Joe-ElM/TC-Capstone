@@ -484,7 +484,7 @@ Extract only what is explicitly stated. Do not infer or assume."""
         
         AGENT ANALYSIS: {' '.join([f"{k}: {v}" for k, v in all_outputs.items()])}
         
-        Use the patient's profile information to answer their query directly and personally. If they ask about their name, age, height, weight, etc., use the profile data above. Create a helpful, personalized response. Sign as "YOU AI Health Team"."""
+        Use the patient's profile information to answer their query directly and personally. If they ask about their name, age, height, weight, etc., use the profile data above. Create a helpful, personalized response. Sign as "Your AI Health Team"."""
         
         messages = [
             SystemMessage(content="You are a healthcare coordinator creating concise, personalized responses."),
@@ -496,9 +496,9 @@ Extract only what is explicitly stated. Do not infer or assume."""
         # Ensure proper signature
         final_response = response.content
         if "[Your Name]" in final_response:
-            final_response = final_response.replace("[Your Name]", "YOU AI Health Team")
-        if "YOU AI Health Team" not in final_response:
-            final_response += "\n\nBest regards,\nYOU AI Health Team"
+            final_response = final_response.replace("[Your Name]", "Your AI Health Team")
+        if "Your AI Health Team" not in final_response:
+            final_response += "\n\nBest regards,\nYour AI Health Team"
         
         synthesis_result = SynthesisResult(
             all_agent_outputs=all_outputs,
