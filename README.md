@@ -62,6 +62,10 @@ healthbot/
 ├── extended_tools.py          # LangChain tools for calculations and search
 ├── config.py                  # Configuration and personalities
 ├── requirements.txt           # Python dependencies
+├── pics/                      # Workflow diagrams
+│   ├── main_workflow.png
+│   ├── system_architecture.png
+│   └── patient_memory_flow.png
 └── README.md                 # This file
 ```
 
@@ -71,6 +75,98 @@ healthbot/
 - **`PatientContext`**: Persistent patient data structure
 - **`UserInput`**: Standardized input schema
 - **Agent Results**: Structured outputs from each specialized agent
+
+## 🔄 Schema & State Management
+
+### Core Data Models
+
+The system uses Pydantic models for type safety and structured data exchange:
+
+#### Input Schema
+
+```python
+UserInput(
+    symptoms: str,           # Primary user query
+    age: Optional[int],      # Patient age
+    gender: Optional[str],   # Patient gender
+    medical_history: List[str],
+    current_medications: List[str],
+    allergies: List[str]
+)
+```
+
+#### Patient Context (Persistent Memory)
+
+```python
+PatientContext(
+    user_id: str,                    # Patient identifier
+    age: Optional[int],              # Demographics
+    gender: Optional[str],
+    symptoms_timeline: Dict[str, List[str]],  # Date-indexed symptoms
+    conditions: List[str],           # Known medical conditions
+    lab_values: Dict[str, Dict],     # Test results with dates
+    medications: List[str],          # Current medications
+    lifestyle_factors: Dict[str, Any], # Height, smoking, exercise
+    recommendations_given: Dict,     # Previous advice tracking
+    last_updated: datetime
+)
+```
+
+### Agent State Exchange
+
+The system uses `MultiAgentHealthState` (TypedDict) for inter-agent communication:
+
+```python
+MultiAgentHealthState = {
+    "user_input": UserInput,           # Original query
+    "patient_context": PatientContext, # Persistent memory
+    "triage_result": TriageResult,     # Routing decisions
+    "diagnosis_result": DiagnosisResult, # Research findings
+    "diet_result": DietResult,         # Nutrition recommendations
+    "treatment_result": TreatmentResult, # Care guidance
+    "synthesis_result": SynthesisResult, # Final integration
+    "research_content": str,           # External API data
+    "conversation_history": List[str]  # Session context
+}
+```
+
+### Agent Output Schemas
+
+Each agent produces structured outputs:
+
+**TriageResult**: Classification and routing
+
+- `urgency_level`: LOW/MEDIUM/HIGH/EMERGENCY
+- `routing_decision`: Which agents to activate
+- `confidence_score`: Certainty of classification
+
+**DiagnosisResult**: Symptom analysis
+
+- `symptoms`: Extracted symptom list
+- `possible_conditions`: Research-based possibilities
+- `severity_level`: Risk assessment
+- `red_flags`: Warning indicators
+
+**DietResult**: Nutritional guidance
+
+- `nutritional_needs`: Calculated requirements
+- `recommended_foods`: Beneficial options
+- `dietary_restrictions`: Foods to avoid
+
+**TreatmentResult**: Care planning
+
+- `care_recommendations`: Actionable steps
+- `follow_up_schedule`: Appointment guidance
+- `when_to_see_doctor`: Urgency indicators
+
+### State Flow Pattern
+
+1. **Input Processing**: User query → structured UserInput
+2. **Context Retrieval**: Load existing PatientContext
+3. **Agent Pipeline**: Each agent reads previous results, adds output
+4. **State Accumulation**: Outputs build in shared state dictionary
+5. **Context Update**: PatientContext enriched with new information
+6. **Response Generation**: Synthesis agent integrates all outputs
 
 ## 🚀 Features
 
@@ -221,13 +317,89 @@ The system automatically extracts:
 - **English only**: Currently supports English language
 - **General advice**: Not specialized for rare conditions
 
+## 💻 Code Examples
+
+### Basic Usage
+
+```python
+from multi_agent_health_system import MultiAgentHealthSystem
+from extended_schemas import UserInput
+
+# Initialize system
+health_system = MultiAgentHealthSystem()
+
+# Process health query
+user_input = UserInput(
+    symptoms="I have a headache and feel tired",
+    age=30,
+    gender="female"
+)
+
+result = health_system.process_health_query(user_input, personality="friendly")
+print(result["response"])
+```
+
+### Custom Agent Integration
+
+```python
+# Add progress tracking
+def progress_callback(status, progress):
+    print(f"{status} - {progress*100:.0f}%")
+
+result = health_system.process_health_query(
+    user_input,
+    personality="concise",
+    progress_callback=progress_callback
+)
+```
+
+### Patient Context Access
+
+```python
+# Get patient summary
+summary = health_system.get_patient_summary()
+print(summary)
+
+# Access specific patient data
+context = health_system.patient_context
+print(f"Conditions: {context.conditions}")
+print(f"Lab values: {context.lab_values}")
+```
+
+## 🧪 Testing
+
+Currently manual testing through Streamlit interface. Automated testing framework planned for future releases.
+
+**Test manually:**
+
+1. Start application: `streamlit run main.py`
+2. Test different query types (symptoms, follow-ups, diet questions)
+3. Verify agent routing in processing pipeline
+4. Check patient context persistence
+
+## 🚨 Troubleshooting
+
+**Common Issues:**
+
+- **API Key Error**: Ensure `OPENAI_API_KEY` is set in environment
+- **Slow Responses**: Check internet connection for Wikipedia/Tavily searches
+- **Memory Issues**: Clear chat to reset patient context if needed
+- **Import Errors**: Run `pip install -r requirements.txt`
+
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/enhancement`)
-3. Commit changes (`git commit -am 'Add enhancement'`)
-4. Push to branch (`git push origin feature/enhancement`)
-5. Create Pull Request
+1. Fork repository
+2. Create feature branch
+3. Follow existing code style (PEP 8)
+4. Test changes manually
+5. Submit pull request with clear description
+
+## 🛡️ Security & Privacy
+
+- No persistent data storage
+- Session-based patient information only
+- Medical disclaimers enforced
+- No external data transmission beyond API calls
 
 ## 📜 License
 
