@@ -16,36 +16,6 @@ class UserInput(BaseModel):
     allergies: Optional[List[str]] = Field(default=[], description="Known allergies")
 
 #=============================================================================
-# PATIENT CONTEXT MODELS - FIXED
-#=============================================================================
-
-class PatientContext(BaseModel):
-    """Maintains cumulative patient information across conversations"""
-    user_id: str = Field(default="", description="Unique user identifier")
-    age: Optional[int] = Field(default=None, description="Patient age")  # FIXED: Made optional with default
-    gender: Optional[str] = Field(default=None, description="Patient gender")  # FIXED: Made optional with default
-    symptoms_timeline: Dict[str, List[str]] = Field(default_factory=dict, description="Symptoms by date")
-    conditions: List[str] = Field(default_factory=list, description="Diagnosed conditions")
-    lab_values: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Lab results with dates")
-    medications: List[str] = Field(default_factory=list, description="Current medications")
-    recommendations_given: Dict[str, List[str]] = Field(default_factory=dict, description="Recommendations by category")
-    user_feedback: Dict[str, str] = Field(default_factory=dict, description="Feedback on recommendations")
-    lifestyle_factors: Dict[str, Any] = Field(default_factory=dict, description="Diet, exercise, habits")
-    unresolved_questions: List[str] = Field(default_factory=list, description="Questions to follow up on")
-    dietary_restrictions: List[str] = Field(default_factory=list, description="Dietary restrictions")  # ADDED: Missing field
-    last_updated: datetime = Field(default_factory=datetime.now)
-
-class ConversationSummary(BaseModel):
-    """Summary of current conversation session"""
-    session_id: str
-    key_facts_extracted: List[str]
-    new_symptoms: List[str]
-    new_lab_values: Dict[str, float]
-    recommendations_made: List[str]
-    follow_up_needed: List[str]
-    timestamp: datetime
-
-#=============================================================================
 # AGENT STATE MODELS
 #=============================================================================
 
@@ -91,15 +61,6 @@ class SynthesisResult(BaseModel):
     appointment_needed: bool
     priority_level: str
 
-class CoherenceResult(BaseModel):
-    """Result from coherence checking - NEW"""
-    original_response: str
-    enhanced_response: str
-    continuity_phrases_added: List[str]
-    repetitions_removed: List[str]
-    personalization_added: List[str]
-    coherence_score: float
-
 class HallucinationCheck(BaseModel):
     source_citations: List[str]
     fact_verification: Dict[str, Any]
@@ -109,7 +70,7 @@ class HallucinationCheck(BaseModel):
     validation_status: str  # APPROVED, FLAGGED, REJECTED
 
 #=============================================================================
-# MAIN AGENT STATE - UPDATED
+# MAIN AGENT STATE
 #=============================================================================
 
 class MultiAgentHealthState(TypedDict):
@@ -117,17 +78,12 @@ class MultiAgentHealthState(TypedDict):
     user_id: Optional[str]
     conversation_id: str
     
-    # Patient Context - NEW
-    patient_context: Optional[PatientContext]
-    conversation_summary: Optional[ConversationSummary]
-    
     # Agent Results
     triage_result: Optional[TriageResult]
     diagnosis_result: Optional[DiagnosisResult]
     diet_result: Optional[DietResult]
     treatment_result: Optional[TreatmentResult]
     synthesis_result: Optional[SynthesisResult]
-    coherence_result: Optional[CoherenceResult]  # NEW
     hallucination_check: Optional[HallucinationCheck]
     
     # Shared Context

@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime
 from multi_agent_health_system import MultiAgentHealthSystem
-from extended_schemas import UserInput, PatientContext
+from extended_schemas import UserInput
 from config import PERSONALITIES, DEFAULT_OPENAI_SETTINGS, MEDICAL_DISCLAIMER
 
 st.set_page_config(
@@ -19,15 +19,9 @@ def save_conversation():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"health_conversation_{timestamp}.json"
         
-        # Include patient context in save
-        patient_context = None
-        if st.session_state.agent:
-            patient_context = st.session_state.agent.patient_context.dict()
-        
         conversation_data = {
             "timestamp": datetime.now().isoformat(),
             "messages": st.session_state.messages,
-            "patient_context": patient_context,
             "settings": {
                 "personality": st.session_state.get("personality", "friendly"),
                 "openai_settings": st.session_state.get("openai_settings", {})
@@ -69,11 +63,8 @@ def load_conversation():
                 st.session_state.personality = settings.get("personality", "friendly")
                 st.session_state.openai_settings = settings.get("openai_settings", {})
             
-            # Reset the agent and load patient context
+            # Reset the agent to clear its conversation history
             st.session_state.agent = None
-            if "patient_context" in conversation_data and conversation_data["patient_context"]:
-                st.session_state.loaded_patient_context = conversation_data["patient_context"]
-            
             st.success("Conversation loaded successfully!")
             st.rerun()
         except Exception as e:
@@ -129,22 +120,8 @@ def main():
         - 🥗 Diet Agent
         - 💊 Treatment Agent
         - 🧠 Synthesis Agent
-        - 📝 Coherence Checker
         - 🔍 Validation Agent
         """)
-        
-        # Patient Summary
-        st.subheader("👤 Patient Profile")
-        if st.session_state.agent and st.session_state.agent.patient_context:
-            ctx = st.session_state.agent.patient_context
-            if ctx.conditions or ctx.lab_values or ctx.symptoms_timeline:
-                st.success("✅ Active Profile")
-                with st.expander("View Summary", expanded=False):
-                    st.markdown(st.session_state.agent.get_patient_summary())
-            else:
-                st.info("📋 Building profile...")
-        else:
-            st.info("📋 No profile yet")
         
         # Conversation management
         st.subheader("💾 Conversation")
@@ -165,11 +142,6 @@ def main():
     # Initialize multi-agent system - maintain same instance for conversation continuity
     if st.session_state.agent is None:
         st.session_state.agent = MultiAgentHealthSystem(openai_settings)
-        # Load patient context if available
-        if hasattr(st.session_state, 'loaded_patient_context'):
-            loaded_ctx = st.session_state.loaded_patient_context
-            st.session_state.agent.patient_context = PatientContext(**loaded_ctx)
-            del st.session_state.loaded_patient_context
     else:
         # Update settings without resetting the agent
         st.session_state.agent.openai_settings = openai_settings
@@ -308,23 +280,16 @@ def main():
         st.info("""
         👋 **Welcome to the Multi-Agent HealthBot!** 
         
-        This advanced system uses 8 specialized AI agents with **persistent memory**:
-        - **Context Resolver**: Understands references and tracks your health journey
-        - **Triage Agent**: Smart routing - only uses relevant agents for faster responses
-        - **Diagnosis Agent**: Researches symptoms with awareness of your conditions
-        - **Diet Agent**: Personalized nutrition based on your progress
-        - **Treatment Agent**: Tracks what's working and suggests next steps
-        - **Synthesis Agent**: Creates coherent responses that build on past conversations
-        - **Coherence Checker**: Ensures continuity and avoids repetition
+        This advanced system uses 7 specialized AI agents:
+        - **Context Resolver**: Understands references like "it" from previous messages
+        - **Triage Agent**: Classifies and prioritizes your health concerns
+        - **Diagnosis Agent**: Researches symptoms and provides educational insights
+        - **Diet Agent**: Offers nutritional recommendations
+        - **Treatment Agent**: Suggests care options and next steps
+        - **Synthesis Agent**: Combines all recommendations into a comprehensive plan
         - **Validation Agent**: Ensures accuracy and safety
         
-        **New Features:**
-        - 🧠 Remembers your conditions, lab values, and what's helped
-        - 🚀 Smart routing for 60% faster responses on follow-ups
-        - 📊 Tracks your progress over time
-        - 💾 Complete conversation and health profile saving
-        
-        Start by describing your symptoms or health questions!
+        Ask me about symptoms, nutrition, supplements, or general health questions.
         """)
 
 if __name__ == "__main__":
