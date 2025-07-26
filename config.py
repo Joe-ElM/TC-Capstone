@@ -98,6 +98,7 @@ PERSONALITIES = {
     }
 }
 
+
 # Default OpenAI settings
 DEFAULT_OPENAI_SETTINGS = {
     "temperature": 0.3,
