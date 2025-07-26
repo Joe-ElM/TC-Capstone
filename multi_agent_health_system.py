@@ -5,12 +5,12 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from extended_schemas import (
     MultiAgentHealthState, UserInput, PatientContext, ConversationSummary,
     TriageResult, DiagnosisResult, DietResult, TreatmentResult, 
-    SynthesisResult, CoherenceResult, HallucinationCheck
+    SynthesisResult, HallucinationCheck, 
 )
 from extended_tools import (
     search_wikipedia, search_tavily, calculate_bmi, calculate_nutrition_needs, 
     score_symptom_severity, schedule_appointment, validate_medical_safety, 
-    combine_search_results, extract_user_profile
+    combine_search_results, # extract_user_profile
 )
 from config import PERSONALITIES, MEDICAL_DISCLAIMER
 from datetime import datetime
@@ -413,13 +413,14 @@ Extract only what is explicitly stated. Do not infer or assume."""
         return {"treatment_result": treatment_result}
     
     #=========================================================================
-    # SYNTHESIS AGENT - SIMPLIFIED & FIXED NAME
+    # SYNTHESIS AGENT - FIXED WITH PERSONALITY INTEGRATION
     #=========================================================================
     
     def _synthesis_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
         patient_context = state.get("patient_context", self.patient_context)
         triage_result = state["triage_result"]
+        personality = state.get("personality", "friendly")  # Get personality from state
         
         # Gather all outputs
         all_outputs = {}
@@ -486,8 +487,11 @@ Extract only what is explicitly stated. Do not infer or assume."""
         
         Use the patient's profile information to answer their query directly and personally. If they ask about their name, age, height, weight, etc., use the profile data above. Create a helpful, personalized response. Sign as "Your AI Health Team"."""
         
+        # USE PERSONALITY PROMPT - THIS IS THE KEY FIX
+        personality_prompt = PERSONALITIES[personality]["system_prompt"]
+        
         messages = [
-            SystemMessage(content="You are a healthcare coordinator creating concise, personalized responses."),
+            SystemMessage(content=personality_prompt),
             HumanMessage(content=prompt)
         ]
         

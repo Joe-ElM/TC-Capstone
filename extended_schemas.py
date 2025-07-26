@@ -91,14 +91,6 @@ class SynthesisResult(BaseModel):
     appointment_needed: bool
     priority_level: str
 
-class CoherenceResult(BaseModel):
-    """Result from coherence checking - NEW"""
-    original_response: str
-    enhanced_response: str
-    continuity_phrases_added: List[str]
-    repetitions_removed: List[str]
-    personalization_added: List[str]
-    coherence_score: float
 
 class HallucinationCheck(BaseModel):
     source_citations: List[str]
@@ -127,7 +119,6 @@ class MultiAgentHealthState(TypedDict):
     diet_result: Optional[DietResult]
     treatment_result: Optional[TreatmentResult]
     synthesis_result: Optional[SynthesisResult]
-    coherence_result: Optional[CoherenceResult]  # NEW
     hallucination_check: Optional[HallucinationCheck]
     
     # Shared Context
@@ -140,17 +131,3 @@ class MultiAgentHealthState(TypedDict):
     response: str
     execution_metadata: Dict[str, Any]
 
-#=============================================================================
-# USER PROFILE MODEL
-#=============================================================================
-
-class UserProfile(BaseModel):
-    user_id: str
-    personal_info: Dict[str, Any]  # age, gender, etc.
-    medical_history: List[str]
-    conversation_summaries: List[Dict[str, Any]]
-    chronic_conditions: List[str]
-    medications: List[str]
-    dietary_restrictions: List[str]
-    created_at: datetime
-    last_updated: datetime

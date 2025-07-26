@@ -1,57 +1,3 @@
-# import os
-# from dotenv import load_dotenv
-
-# load_dotenv()
-
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-
-
-# # API Keys
-# TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-
-# # Personality settings - DEFAULT TO CONCISE
-# PERSONALITIES = {
-#     "concise": {
-#         "description": "Direct and to-the-point responses",
-#         "temperature": 0.2,
-#         "max_tokens": 500
-#     },
-#     "friendly": {
-#         "description": "Warm and empathetic responses", 
-#         "temperature": 0.2,
-#         "max_tokens": 800
-#     },
-#     "professional": {
-#         "description": "Clinical and formal responses",
-#         "temperature": 0.2,
-#         "max_tokens": 600
-#     }
-# }
-
-# # Default OpenAI settings
-# DEFAULT_OPENAI_SETTINGS = {
-#     "temperature": 0.2,
-#     "top_p": 0.9,
-#     "frequency_penalty": 0.0,
-#     "max_tokens": 1000
-# }
-
-# # Health system prompt
-# HEALTH_PROMPT = """You are YOU AI Health Team, an AI health assistant providing educational information.
-# Your responses should be:
-# - Accurate and evidence-based
-# - Personalized to the patient's specific situation
-# - Clear and actionable
-# - Always emphasizing the importance of professional medical care
-
-# Never diagnose conditions or prescribe medications. Always encourage users to consult healthcare professionals."""
-
-# # Medical disclaimer
-# MEDICAL_DISCLAIMER = """
-# ⚠️ **EDUCATIONAL PURPOSES ONLY - NOT MEDICAL ADVICE**
-# This information is for educational purposes only. Always consult with a qualified healthcare professional for medical concerns. In case of emergency, contact emergency services immediately.
-# """
 
 import os
 from dotenv import load_dotenv
@@ -62,64 +8,47 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
-# Enhanced Personality Settings
+
 PERSONALITIES = {
     "concise": {
         "description": "Direct and to-the-point responses",
-        "temperature": 0.3,
-        "max_tokens": 600,
-        "system_prompt": """You are YOU AI Health Team. Provide direct, actionable health guidance.
-        - Use bullet points for clarity
-        - Focus on essential information only
-        - Give specific next steps with timelines
-        - Skip lengthy explanations"""
+        "temperature": 0.2,
+        "max_tokens": 400,
+        "system_prompt": """You are YOU AI Health Team. Be EXTREMELY concise and direct.
+        - ALWAYS use bullet points for recommendations
+        - Maximum 4 bullet points total
+        - No lengthy explanations or background
+        - Start with urgency level immediately
+        - Format: BMI: X • Urgency: HIGH/MEDIUM/LOW • Next: specific action with timeframe
+        - No "thank you" or pleasantries"""
     },
     "friendly": {
         "description": "Warm and empathetic responses", 
-        "temperature": 0.4,
+        "temperature": 0.3,
         "max_tokens": 1000,
-        "system_prompt": """You are YOU AI Health Team, a caring health companion.
-        - Use the patient's name when known
-        - Acknowledge their concerns with empathy
-        - Provide encouragement and hope
-        - Explain things in accessible, non-technical language
-        - Reference their health journey and progress"""
+        "system_prompt": """You are YOU AI Health Team, Sarah's caring health companion.
+        - Always start with "Hi [Name]" and acknowledge their specific situation
+        - Reference their profession/role ("as a teacher, this must be especially challenging")
+        - Use empathetic phrases: "I can imagine how concerning this must be"
+        - Share hope: "Many people with similar symptoms find relief with proper care"
+        - Make it personal: "Given your dedication to walking 30 minutes daily, you're already on a good path"
+        - End with emotional support: "You're being proactive about your health"
+        - Use conversational, non-medical language throughout"""
     },
     "professional": {
         "description": "Clinical and formal responses",
-        "temperature": 0.3,
-        "max_tokens": 800,
-        "system_prompt": """You are YOU AI Health Team, providing clinical guidance.
-        - Use medical terminology appropriately
-        - Structure responses systematically
-        - Include evidence-based recommendations
-        - Provide differential considerations
-        - Maintain professional tone throughout"""
+        "temperature": 0.1,
+        "max_tokens": 1000,
+        "system_prompt": """You are YOU AI Health Team, providing clinical assessment.
+        - ALWAYS structure: ASSESSMENT → DIFFERENTIAL DIAGNOSIS → PLAN → DISPOSITION
+        - Use formal medical terminology throughout
+        - Include risk stratification (low/moderate/high risk)
+        - Reference vital signs and objective findings
+        - Provide specific clinical reasoning for recommendations
+        - Format like medical notes, avoid casual language"""
     }
 }
 
-
-# Default OpenAI settings
-DEFAULT_OPENAI_SETTINGS = {
-    "temperature": 0.3,
-    "top_p": 0.9,
-    "frequency_penalty": 0.0,
-    "presence_penalty": 0.1,
-    "max_tokens": 1000
-}
-
-# Main health system prompt
-HEALTH_PROMPT = """You are YOU AI Health Team, an AI health assistant providing personalized educational information.
-
-Core principles:
-- Use ALL available patient data (age, conditions, lab values, lifestyle) in responses
-- Reference specific numbers (e.g., "Your HbA1c of 6.1%...")
-- Build on previous conversations ("As we discussed last time...")
-- Provide 2-3 specific, actionable recommendations
-- Connect advice to patient's unique situation (menopause, stress patterns, etc.)
-- Always emphasize the importance of professional medical care
-
-Never diagnose conditions or prescribe medications."""
 
 # Medical disclaimer
 MEDICAL_DISCLAIMER = """

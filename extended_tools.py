@@ -13,16 +13,7 @@ except ImportError:
     TavilySearchResults = None
 from langchain_community.document_loaders import WikipediaLoader
 
-#=============================================================================
-# SIMPLIFIED EXTRACTION - ONE TOOL TO RULE THEM ALL
-#=============================================================================
 
-@tool
-def extract_user_profile(text: str) -> Dict[str, Any]:
-    """Extract ALL user information using LLM - replaces complex regex"""
-    # This will be handled by the LLM directly in the agent
-    # Just return the text for the LLM to process
-    return {"text": text}
 
 #=============================================================================
 # RESEARCH TOOLS (KEEP THESE - THEY WORK WELL)

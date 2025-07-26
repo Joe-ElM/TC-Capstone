@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from multi_agent_health_system import MultiAgentHealthSystem
 from extended_schemas import UserInput, PatientContext
-from config import PERSONALITIES, DEFAULT_OPENAI_SETTINGS, MEDICAL_DISCLAIMER
+from config import PERSONALITIES,  MEDICAL_DISCLAIMER #, DEFAULT_OPENAI_SETTINGS,
 
 st.set_page_config(
     page_title="HealthBot - AI Patient Education",
