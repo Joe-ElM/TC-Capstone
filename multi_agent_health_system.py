@@ -10,7 +10,7 @@ from extended_schemas import (
 from extended_tools import (
     search_wikipedia, search_tavily, calculate_bmi, calculate_nutrition_needs, 
     score_symptom_severity, schedule_appointment, validate_medical_safety, 
-    combine_search_results, # extract_user_profile
+    combine_search_results, 
 )
 from config import PERSONALITIES, MEDICAL_DISCLAIMER
 from datetime import datetime
