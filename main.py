@@ -12,6 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 def main():
     st.title("🏥 HealthBot - Multi-Agent AI Health System")
     st.markdown("*Advanced multi-agent health education and symptom analysis*")

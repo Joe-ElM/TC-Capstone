@@ -17,6 +17,7 @@ from datetime import datetime
 import re
 import json
 
+
 class MultiAgentHealthSystem:
     def __init__(self, openai_settings=None):
         self.openai_settings = openai_settings or {}
