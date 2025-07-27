@@ -9,7 +9,7 @@ An advanced multi-agent AI system for health education and symptom analysis, bui
 - **Personalized Recommendations**: Provides diet, treatment, and lifestyle advice
 - **Patient Memory**: Tracks conditions, medications, lab values across sessions
 - **Safety Validation**: Multiple layers of medical accuracy checking
-- **Smart Routing**: 60% faster responses for follow-up questions
+- **Smart Routing**: faster responses for follow-up questions
 
 ## ⚠️ What It Does NOT Do
 
