@@ -240,12 +240,6 @@ def main():
         - **Coherence Checker**: Ensures continuity and avoids repetition
         - **Validation Agent**: Ensures accuracy and safety
         
-        **Key Features:**
-        - 🧠 Remembers your conditions, lab values, and what's helped
-        - 🚀 Smart routing for 60% faster responses on follow-ups
-        - 📊 Tracks your progress over time
-        - ✅ Multiple safety validation layers
-        
         Start by describing your symptoms or health questions!
         """)
 

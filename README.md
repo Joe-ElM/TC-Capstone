@@ -40,17 +40,52 @@ An advanced multi-agent AI system for health education and symptom analysis, bui
 
 The primary workflow shows intelligent routing where the Triage Agent determines which specialized agents to activate based on query complexity and type.
 
-### System Architecture Overview
+## 🛤️ **The Routing Paths This Creates:**
 
-![System Architecture](pics/system_architecture.png)
+| Triage Decision    | Actual Path                                                                  |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `"diagnosis_only"` | profile → triage → **diagnosis** → synthesis → validation                    |
+| `"diet_only"`      | profile → triage → **diet** → synthesis → validation                         |
+| `"treatment_only"` | profile → triage → **treatment** → synthesis → validation                    |
+| `"full_pipeline"`  | profile → triage → **diagnosis → diet → treatment** → synthesis → validation |
+| `"clarification"`  | profile → triage → **synthesis** → validation                                |
 
-Complete multi-agent architecture displaying data flows between processing layers, external APIs, and persistent patient context storage.
+## 💡 **Why This Is Brilliant:**
 
-### Patient Memory Evolution
+**Without this logic**, every query would go through ALL agents:
 
-![Patient Memory Flow](pics/patient_memory_flow.png)
+```
+triage → diagnosis → diet → treatment → synthesis  (slow!)
+```
 
-Demonstrates how patient context accumulates across conversation sessions, enabling personalized responses that reference previous interactions and stored health data.
+**With this logic**, the system is smart:
+
+- Simple diet question: `triage → diet → synthesis` ⚡ (60% faster!)
+- Quick symptom check: `triage → diagnosis → synthesis` ⚡
+- Full consultation: `triage → diagnosis → diet → treatment → synthesis` 🔄
+
+## 🔍 **Step-by-Step Example:**
+
+**Scenario: User asks "What foods help with headaches?"**
+
+1. **Triage Agent** analyzes → decides `routing_decision = "diet_only"`
+2. **Conditional routing** from triage → sends to `diet_agent` (skips diagnosis)
+3. **Diet Agent** runs → creates nutritional recommendations
+4. **Diet Agent's conditional edge** checks:
+   - `routing_decision in ["diet_only", "diagnosis_only"]` ✅ TRUE
+   - Goes directly to `synthesis_agent` (skips treatment)
+5. **Synthesis** → **Validation** → **Done!**
+
+**Result:** 3 agents instead of 5 = much faster response!
+
+## 🎯 **The Key Insight:**
+
+The lambda functions **remember the original triage decision** and use it to determine whether each agent should:
+
+- **Continue the pipeline** (for full consultations)
+- **Jump to synthesis** (for focused questions)
+
+This creates a **self-optimizing workflow** that automatically chooses the most efficient path based on the user's needs!
 
 ## 📁 Project Structure
 
