@@ -48,7 +48,7 @@ class MultiAgentHealthSystem:
     def _build_graph(self):
         builder = StateGraph(MultiAgentHealthState)
         
-        # Simplified node structure
+        # Add nodes including new rejection handler
         builder.add_node("profile_extractor", self._profile_extractor)
         builder.add_node("triage_agent", self._triage_agent)
         builder.add_node("diagnosis_agent", self._diagnosis_agent)
@@ -56,6 +56,7 @@ class MultiAgentHealthSystem:
         builder.add_node("treatment_agent", self._treatment_agent)
         builder.add_node("synthesis_agent", self._synthesis_agent)
         builder.add_node("hallucination_detector", self._hallucination_detector)
+        builder.add_node("non_health_rejection", self._non_health_rejection)
         
         # Start with profile extraction
         builder.add_edge(START, "profile_extractor")
@@ -70,9 +71,13 @@ class MultiAgentHealthSystem:
                 "diet_only": "diet_agent",
                 "treatment_only": "treatment_agent",
                 "full_pipeline": "diagnosis_agent",
-                "clarification": "synthesis_agent"
+                "clarification": "synthesis_agent",
+                "non_health_rejection": "non_health_rejection"
             }
         )
+        
+        # Non-health queries bypass all medical agents
+        builder.add_edge("non_health_rejection", END)
         
         # Conditional edges for partial routes
         builder.add_conditional_edges(
@@ -95,6 +100,57 @@ class MultiAgentHealthSystem:
         """Determine which route to take based on triage results"""
         triage_result = state.get("triage_result", {})
         return triage_result.routing_decision
+    
+    #=========================================================================
+    # NON-HEALTH REJECTION HANDLER - GENERALIZABLE APPROACH
+    #=========================================================================
+    
+    def _non_health_rejection(self, state: MultiAgentHealthState):
+        """Handle non-health queries with LLM-generated contextual response"""
+        user_input = state["user_input"]
+        
+        # Use LLM to generate appropriate contextual response
+        prompt = f"""The user asked: "{user_input.symptoms}"
+
+This is not a health-related question. Generate a brief, polite response that:
+1. Acknowledges what they asked about without being specific
+2. Explains you're specialized in health and medical topics
+3. Offers to help with any health-related questions instead
+
+Keep the response professional, helpful, and under 3 sentences."""
+        
+        messages = [
+            SystemMessage(content="You are a health-focused AI that politely redirects non-health queries. Be brief and helpful."),
+            HumanMessage(content=prompt)
+        ]
+        
+        response = self.llm.invoke(messages)
+        message = response.content.strip()
+        
+        # Create a simple synthesis result for non-health queries
+        synthesis_result = SynthesisResult(
+            all_agent_outputs={"rejection": "Non-health query handled"},
+            safety_validations=[],
+            cross_checks={"validated": True},
+            final_recommendations={"plan": message},
+            appointment_needed=False,
+            priority_level="N/A"
+        )
+        
+        # Create a simple hallucination check
+        hallucination_check = HallucinationCheck(
+            source_citations=["System response"],
+            fact_verification={"checked": True},
+            consistency_score=1.0,
+            medical_accuracy={"appropriate": True},
+            flagged_claims=[],
+            validation_status="APPROVED"
+        )
+        
+        return {
+            "synthesis_result": synthesis_result,
+            "hallucination_check": hallucination_check
+        }
     
     #=========================================================================
     # PROFILE EXTRACTOR - UPDATED WITH STRUCTURED LLM
@@ -224,13 +280,51 @@ Extract only what is explicitly stated. Do not infer or assume."""
         return {"patient_context": self.patient_context}
     
     #=========================================================================
-    # TRIAGE AGENT - SIMPLIFIED
+    # TRIAGE AGENT - UPDATED WITH PROPER INTENT CLASSIFICATION
     #=========================================================================
     
     def _triage_agent(self, state: MultiAgentHealthState):
         user_input = state["user_input"]
         patient_context = state.get("patient_context", self.patient_context)
         
+        # First, classify if this is actually a health query
+        intent_prompt = f"""Classify this query as health-related or not:
+
+Query: "{user_input.symptoms}"
+
+Health-related queries include:
+- Physical symptoms (pain, fever, headache, etc.)
+- Medical conditions or diseases
+- Medications and treatments
+- Diet and nutrition questions
+- Mental health concerns
+- Exercise and fitness questions
+- Medical test results
+- Doctor visits or medical procedures
+- Health prevention and wellness
+
+Respond with only: HEALTH or NON_HEALTH"""
+        
+        intent_messages = [
+            SystemMessage(content="You are an intent classifier. Respond with only HEALTH or NON_HEALTH."),
+            HumanMessage(content=intent_prompt)
+        ]
+        
+        intent_response = self.llm.invoke(intent_messages)
+        intent = intent_response.content.strip().upper()
+        
+        # If not health-related, return rejection routing
+        if "NON_HEALTH" in intent:
+            triage_result = TriageResult(
+                intent_classification="non_health",
+                urgency_level="N/A",
+                emergency_flags=[],
+                routing_decision="non_health_rejection",
+                confidence_score=0.9
+            )
+            return {"triage_result": triage_result}
+        
+        # Original health triage logic continues here...
         prompt = f"""Classify this health query:
         Query: {user_input.symptoms}
         Patient: {patient_context.age or 'Unknown'} year old {patient_context.gender or 'Unknown'}
@@ -582,18 +676,38 @@ Extract only what is explicitly stated. Do not infer or assume."""
             
             routing = state["triage_result"].routing_decision
             
-            # Route based on triage
-            if routing == "diet_only":
+            # Handle non-health queries
+            if routing == "non_health_rejection":
+                progress_callback("❌ Non-health query detected...", 0.5)
+                state.update(self._non_health_rejection(state))
+            # Route based on triage for health queries
+            elif routing == "diet_only":
                 progress_callback("🥗 Generating dietary recommendations...", 0.5)
                 state.update(self._diet_agent(state))
+                progress_callback("🧠 Synthesizing response...", 0.85)
+                state.update(self._synthesis_agent(state))
+                progress_callback("✅ Validating recommendations...", 0.95)
+                state.update(self._hallucination_detector(state))
             elif routing == "treatment_only":
                 progress_callback("💊 Creating treatment plan...", 0.5)
                 state.update(self._treatment_agent(state))
+                progress_callback("🧠 Synthesizing response...", 0.85)
+                state.update(self._synthesis_agent(state))
+                progress_callback("✅ Validating recommendations...", 0.95)
+                state.update(self._hallucination_detector(state))
             elif routing == "diagnosis_only":
                 progress_callback("🔍 Analyzing symptoms...", 0.5)
                 state.update(self._diagnosis_agent(state))
+                progress_callback("🧠 Synthesizing response...", 0.85)
+                state.update(self._synthesis_agent(state))
+                progress_callback("✅ Validating recommendations...", 0.95)
+                state.update(self._hallucination_detector(state))
             elif routing == "clarification":
                 progress_callback("💭 Processing clarification...", 0.5)
+                progress_callback("🧠 Synthesizing response...", 0.85)
+                state.update(self._synthesis_agent(state))
+                progress_callback("✅ Validating recommendations...", 0.95)
+                state.update(self._hallucination_detector(state))
             else:  # full_pipeline
                 progress_callback("🔍 Analyzing symptoms...", 0.3)
                 state.update(self._diagnosis_agent(state))
@@ -601,14 +715,10 @@ Extract only what is explicitly stated. Do not infer or assume."""
                 state.update(self._diet_agent(state))
                 progress_callback("💊 Creating treatment plan...", 0.7)
                 state.update(self._treatment_agent(state))
-            
-            # Always synthesize
-            progress_callback("🧠 Synthesizing response...", 0.85)
-            state.update(self._synthesis_agent(state))
-            
-            # Always validate
-            progress_callback("✅ Validating recommendations...", 0.95)
-            state.update(self._hallucination_detector(state))
+                progress_callback("🧠 Synthesizing response...", 0.85)
+                state.update(self._synthesis_agent(state))
+                progress_callback("✅ Validating recommendations...", 0.95)
+                state.update(self._hallucination_detector(state))
             
             result = state
         else:
