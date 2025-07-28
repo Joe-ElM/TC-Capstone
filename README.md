@@ -36,7 +36,7 @@ An advanced multi-agent AI system for health education and symptom analysis, bui
 
 ### Main Processing Flow
 
-![Main Workflow](pics/main_workflow.png)
+![Main Workflow](pics/Main_Workflow.png)
 
 The primary workflow shows intelligent routing where the Triage Agent determines which specialized agents to activate based on query complexity and type.
 
